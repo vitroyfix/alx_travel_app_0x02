@@ -8,7 +8,7 @@ from django.conf.urls.static import static
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('', include('alx_travel_app.listings.urls')),
+    path("", include("alx_travel_app.listings.urls")),
 ]
 
 # Serve media files in development

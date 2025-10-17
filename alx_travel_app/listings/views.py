@@ -32,51 +32,80 @@ CHAPA_VERIFY_URL = "https://api.chapa.co/v1/transaction/verify"
 @csrf_exempt
 def initiate_payment(request):
     if request.method == "POST":
-        data = request.POST
-        booking_reference = data.get("booking_reference")
-        amount = data.get("amount")
+        booking_reference = request.POST.get("booking_reference")
+        amount = request.POST.get("amount")
 
+        if not booking_reference or not amount:
+            return JsonResponse({"error": "Missing booking_reference or amount"}, status=400)
+
+        chapa_url = "https://api.chapa.co/v1/transaction/initialize"
+        headers = {"Authorization": f"Bearer {os.getenv('CHAPA_SECRET_KEY')}"}
         payload = {
             "amount": amount,
             "currency": "ETB",
-            "email": "user@example.com",
-            "first_name": "John",
-            "last_name": "Doe",
             "tx_ref": f"txn_{booking_reference}",
             "callback_url": "http://localhost:8000/verify-payment/",
+            "return_url": "http://localhost:8000/payment-success/",
+            "customization": {"title": "Travel Booking Payment"},
         }
 
-        headers = {
-            "Authorization": f"Bearer {os.getenv('CHAPA_SECRET_KEY')}",
-            "Content-Type": "application/json",
-        }
+        response = requests.post(chapa_url, headers=headers, json=payload)
+        data = response.json()
 
-        response = requests.post(CHAPA_URL, json=payload, headers=headers)
-        res_data = response.json()
-
-        if res_data.get("status") == "success":
-            tx_ref = res_data["data"]["tx_ref"]
+        if data.get("status") == "success":
             Payment.objects.create(
                 booking_reference=booking_reference,
                 amount=amount,
-                chapa_tx_ref=tx_ref,
+                transaction_id=data["data"]["tx_ref"],
                 status="Pending",
             )
-            return JsonResponse({"checkout_url": res_data["data"]["checkout_url"]})
-        return JsonResponse(res_data, status=400)
+            return JsonResponse({
+                "checkout_url": data["data"]["checkout_url"],
+                "transaction_id": data["data"]["tx_ref"]
+            })
+
+        return JsonResponse({"error": "Payment initiation failed", "details": data}, status=400)
+
+    # If it's not POST, just return a message
+    return JsonResponse({"message": "Send a POST request to initiate payment."})
+
 
 @csrf_exempt
 def verify_payment(request):
+    """Verify payment status with Chapa"""
     if request.method == "GET":
         tx_ref = request.GET.get("tx_ref")
-        headers = {
-            "Authorization": f"Bearer {os.getenv('CHAPA_SECRET_KEY')}",
-        }
-        response = requests.get(f"{CHAPA_VERIFY_URL}/{tx_ref}", headers=headers)
-        res_data = response.json()
-
-        payment = Payment.objects.filter(chapa_tx_ref=tx_ref).first()
-        if payment:
-            payment.status = "Completed" if res_data["data"]["status"] == "success" else "Failed"
-            payment.save()
-        return JsonResponse(res_data)
+        
+        if not tx_ref:
+            return JsonResponse({"error": "Missing transaction reference"}, status=400)
+        
+        headers = {"Authorization": f"Bearer {os.getenv('CHAPA_SECRET_KEY')}"}
+        verify_url = f"{CHAPA_VERIFY_URL}/{tx_ref}"
+        
+        response = requests.get(verify_url, headers=headers)
+        data = response.json()
+        
+        if data.get("status") == "success":
+            # Update payment status in database
+            try:
+                payment = Payment.objects.get(transaction_id=tx_ref)
+                payment.status = "Completed"
+                payment.save()
+                
+                return JsonResponse({
+                    "message": "Payment verified successfully",
+                    "transaction_id": tx_ref,
+                    "status": "Completed"
+                })
+            except Payment.DoesNotExist:
+                return JsonResponse({
+                    "error": "Payment record not found",
+                    "transaction_id": tx_ref
+                }, status=404)
+        
+        return JsonResponse({
+            "error": "Payment verification failed",
+            "details": data
+        }, status=400)
+    
+    return JsonResponse({"message": "Send a GET request with tx_ref to verify payment."})

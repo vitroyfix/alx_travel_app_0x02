@@ -109,3 +109,14 @@ def verify_payment(request):
         }, status=400)
     
     return JsonResponse({"message": "Send a GET request with tx_ref to verify payment."})
+def perform_create(self, serializer):
+    # Save the booking instance
+    booking = serializer.save()
+
+    # Extract necessary details
+    customer_email = booking.user.email
+    # Assuming your Listing model has a 'title' or 'name' field
+    property_name = booking.listing.property_name if hasattr(booking.listing, 'property_name') else "your booking"
+
+    # Trigger Celery task asynchronously
+    send_booking_email.delay(customer_email, property_name)

@@ -118,3 +118,10 @@ REST_FRAMEWORK = {
 
 # CORS settings
 CORS_ALLOW_ALL_ORIGINS = True
+
+
+CELERY_BROKER_URL = 'pyamqp://guest@localhost//'
+
+CELERY_RESULT_BACKEND = 'rpc://'
+
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend' # For testing
